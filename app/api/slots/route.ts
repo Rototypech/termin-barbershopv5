@@ -31,8 +31,8 @@ export async function GET(req: Request) {
       const d = Number.parseInt(durationStr, 10);
       if (!Number.isNaN(d) && d > 0) serviceDuration = d;
     }
-    const day = new Date(`${dateStr}T00:00:00`);
-    const dow = day.getDay();
+    const parts = dateStr.split("-").map((x) => Number.parseInt(x, 10));
+    const dow = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])).getUTCDay();
     const wh = await prisma.workingHours.findUnique({ where: { dayOfWeek: dow } });
     if (!wh || !wh.isOpen) return NextResponse.json([], { status: 200 });
 
@@ -81,6 +81,17 @@ export async function GET(req: Request) {
 
     const toLabel = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
     const slots: { time: string; isBooked: boolean }[] = [];
+
+    const now = new Date();
+    const nowParts = new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).formatToParts(now);
+    const ny = Number(nowParts.find((p) => p.type === "year")?.value || now.getFullYear());
+    const nm = Number(nowParts.find((p) => p.type === "month")?.value || (now.getMonth() + 1));
+    const nd = Number(nowParts.find((p) => p.type === "day")?.value || now.getDate());
+    const nh = Number(nowParts.find((p) => p.type === "hour")?.value || now.getHours());
+    const nmin = Number(nowParts.find((p) => p.type === "minute")?.value || now.getMinutes());
+    const todayZurich = `${String(ny)}-${String(nm).padStart(2, "0")}-${String(nd).padStart(2, "0")}`;
+    const nowMinutesZurich = nh * 60 + nmin;
+    const isToday = dateStr === todayZurich;
     for (let start = startMin; start < endMin; start += 15) {
       const end = start + serviceDuration;
       const overClosing = end > endMin;
@@ -88,7 +99,8 @@ export async function GET(req: Request) {
       const overlapsBreak = breakIntervals.some((bi) => start < bi.end && end > bi.start);
       const overlapsManual = manualIntervals.some((bi) => start < bi.end && end > bi.start);
       const label = toLabel(start);
-      slots.push({ time: label, isBooked: overClosing || overlaps || overlapsBreak || overlapsManual });
+      const past = isToday ? start < nowMinutesZurich : false;
+      slots.push({ time: label, isBooked: overClosing || overlaps || overlapsBreak || overlapsManual || past });
     }
     return NextResponse.json(slots, { status: 200 });
   } catch (e) {

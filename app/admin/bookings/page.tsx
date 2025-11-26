@@ -18,7 +18,7 @@ export default async function AdminBookings() {
   }));
   const services = await prisma.service.findMany({ orderBy: { name: "asc" }, select: { id: true, name: true } });
   return (
-    <div className="min-h-screen bg-neutral-950 text-neutral-100 p-8">
+    <div className="min-h-screen bg-neutral-950 text-neutral-100 md:px-8 px-0 py-8">
       <h1 className="text-2xl text-[#C5A059] mb-6">Buchungen</h1>
       <AdminClient initial={bookings} initialServices={services} />
     </div>

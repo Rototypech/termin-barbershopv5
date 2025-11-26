@@ -7,6 +7,11 @@ export async function GET() {
   const now = new Date();
   const from = new Date(now.getFullYear(), now.getMonth(), 1);
   const to = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const parts = new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now);
+  const y = Number(parts.find((p) => p.type === "year")?.value || now.getFullYear());
+  const m = Number(parts.find((p) => p.type === "month")?.value || (now.getMonth() + 1));
+  const d = Number(parts.find((p) => p.type === "day")?.value || now.getDate());
+  const startOfToday = new Date(y, m - 1, d, 0, 0, 0, 0);
   try {
     const items = await prisma.booking.findMany({
       where: { date: { gte: from, lt: to } },
@@ -18,8 +23,9 @@ export async function GET() {
       if (includeStatus.has(b.status)) return sum + (b.service?.priceCHF ?? 0);
       return sum;
     }, 0);
-    return NextResponse.json({ monthRevenue: revenue, monthVisits: visits }, { status: 200 });
+    const emailsSentToday = await prisma.emailLog.count({ where: { sentAt: { gte: startOfToday } } });
+    return NextResponse.json({ monthRevenue: revenue, monthVisits: visits, emailsSentToday }, { status: 200 });
   } catch {
-    return NextResponse.json({ monthRevenue: 0, monthVisits: 0 }, { status: 200 });
+    return NextResponse.json({ monthRevenue: 0, monthVisits: 0, emailsSentToday: 0 }, { status: 200 });
   }
 }

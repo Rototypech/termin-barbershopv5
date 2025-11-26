@@ -24,11 +24,13 @@ export default function Home() {
   const [clientNotes, setClientNotes] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [status, setStatus] = useState<string>("");
+  const [errorModal, setErrorModal] = useState<string | null>(null);
   const [availableSlots, setAvailableSlots] = useState<Slot[]>([]);
   const [emailError, setEmailError] = useState("");
   const [consent, setConsent] = useState(false);
   const [marketingConsent, setMarketingConsent] = useState(false);
   const [toast, setToast] = useState<string>("");
+  const [openDays, setOpenDays] = useState<boolean[]>([false, false, true, true, true, true, true]);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,6 +39,18 @@ export default function Home() {
         const r = await fetch("/api/services");
         const data = await r.json();
         if (!cancelled) setServices(Array.isArray(data) ? data : []);
+        try {
+          const rh = await fetch("/api/working-hours");
+          const hours = await rh.json();
+          if (!cancelled && Array.isArray(hours)) {
+            const base = [false, false, false, false, false, false, false];
+            for (const it of hours) {
+              const idx = Number(it?.dayOfWeek ?? -1);
+              if (idx >= 0 && idx <= 6) base[idx] = !!it?.isOpen;
+            }
+            setOpenDays(base);
+          }
+        } catch {}
       } catch {
         if (!cancelled) setServices([]);
       }
@@ -94,10 +108,24 @@ export default function Home() {
       }),
     });
     setIsLoading(false);
+    const data = await res.json().catch(() => ({}));
     if (res.ok) {
       setStep(5);
     } else if (res.status === 409) {
-      setStatus("Es tut uns leid, dieser Termin wurde gerade vergeben. Bitte wählen Sie eine andere Zeit.");
+      const err = String((data as { error?: string })?.error || "");
+      let msg = "Fehler";
+      if (err === "CONFLICT") msg = "Es tut uns leid, dieser Termin wurde gerade vergeben. Bitte wählen Sie eine andere Zeit.";
+      else if (err === "BLOCKED" || err === "OUT_OF_HOURS") msg = "Der Zeitbereich ist zu kurz für diese Dienstleistung";
+      else if (err === "CLOSED") msg = "Geschlossen";
+      else if (err === "DATE_TOO_FAR") msg = "Datum liegt zu weit in der Zukunft";
+      else if (err === "PAST_TIME") msg = "Vergangene Zeit";
+      if (err && !["CONFLICT","BLOCKED","OUT_OF_HOURS","CLOSED","DATE_TOO_FAR","PAST_TIME"].includes(err)) {
+        msg = err;
+      }
+      setStatus(msg);
+      if (err === "BLOCKED" || err === "OUT_OF_HOURS" || (err && err.includes("za krótki"))) {
+        setErrorModal(msg);
+      }
     } else {
       setStatus("Fehler");
     }
@@ -105,10 +133,24 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-neutral-950 text-neutral-100 flex flex-col items-center py-10">
+      {errorModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-neutral-900 border border-[#C5A059] rounded p-6 w-full max-w-md">
+            <div className="text-xl text-[#C5A059] mb-4 text-center">{errorModal}</div>
+            <div className="flex justify-center">
+              <button
+                type="button"
+                className="px-4 py-2 rounded bg-[#C5A059] text-black"
+                onClick={() => { setErrorModal(null); setStep(3); }}
+              >Termin ändern</button>
+            </div>
+          </div>
+        </div>
+      )}
       {toast && (
         <div className="fixed top-3 right-3 px-3 py-2 rounded bg-neutral-800 text-neutral-200 border border-neutral-700 z-50">{toast}</div>
       )}
-      <IntroSplash variant="client" />
+      <IntroSplash variant="client" always />
       <div className="text-[#C5A059] text-2xl mb-6">Dienstleistung auswählen:</div>
 
       {step === 1 && (
@@ -139,6 +181,8 @@ export default function Home() {
             onChange={(d) => { const value = d as Date; setDate(value); setSelectedTime(null); loadSlotsFor(value); }}
             value={date}
             minDate={new Date()}
+            maxDate={new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)}
+            tileDisabled={({ date, view }) => view === "month" ? !openDays[date.getDay()] : false}
             className="react-calendar w-full max-w-xl rounded-lg"
           />
           <div className="flex gap-4">
@@ -169,8 +213,14 @@ export default function Home() {
                 <button
                   key={slot.time}
                   type="button"
-                  disabled={slot.isBooked}
-                  onClick={() => setSelectedTime(slot.time)}
+                  onClick={() => {
+                    if (slot.isBooked) {
+                      setToast("Der Zeitbereich ist zu kurz für diese Dienstleistung");
+                      setTimeout(() => setToast(""), 2500);
+                      return;
+                    }
+                    setSelectedTime(slot.time);
+                  }}
                   className={clsx(base, style)}
                 >
                   {slot.time}

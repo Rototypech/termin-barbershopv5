@@ -22,8 +22,9 @@ export async function GET(req: Request) {
   const checkId = Number.parseInt(params.get("checkId") || "0", 10);
   if (checkId > 0) {
     try {
-      const rowsUnknown = (await prisma.$queryRawUnsafe(`SELECT "reminderSent" FROM "Booking" WHERE id = ${checkId} LIMIT 1`)) as unknown;
-      const rows = (Array.isArray(rowsUnknown) ? rowsUnknown : []) as { reminderSent: boolean }[];
+      const rows = (await prisma.$queryRaw<{ reminderSent: boolean }[]>`
+        SELECT "reminderSent" FROM "Booking" WHERE id = ${checkId} LIMIT 1
+      `) || [];
       return NextResponse.json({ id: checkId, reminderSent: rows[0]?.reminderSent ?? null });
     } catch {
       return NextResponse.json({ id: checkId, reminderSent: null }, { status: 500 });
@@ -32,15 +33,23 @@ export async function GET(req: Request) {
   try {
     const debugAll = params.get("debugAll") === "true";
     const rangeUpper = debugAll ? new Date(now.getTime() + 48 * 60 * 60 * 1000) : upper;
-    const rowsUnknown = await prisma.$queryRawUnsafe(
-      `SELECT b.id, b.date, b."clientName", b."clientEmail", s.name AS "serviceName" 
-       FROM "Booking" b 
-       LEFT JOIN "Service" s ON s.id = b."serviceId" 
-       WHERE b.date > ${now.toISOString()}::timestamptz AND b.date < ${rangeUpper.toISOString()}::timestamptz 
-       ${debugAll ? "" : "AND b.status = 'BESTAETIGT' AND COALESCE(b.\"reminderSent\", false) = false"} 
-       ORDER BY b.date ASC`
-    );
-    const bookings = (Array.isArray(rowsUnknown) ? rowsUnknown : []) as { id: number; date: Date; clientName: string; clientEmail: string; serviceName: string | null }[];
+    type BookingRow = { id: number; date: Date; clientName: string; clientEmail: string; serviceName: string | null };
+    const bookings: BookingRow[] = debugAll
+      ? ((await prisma.$queryRaw<BookingRow[]>`
+          SELECT b.id, b.date, b."clientName", b."clientEmail", s.name AS "serviceName"
+          FROM "Booking" b
+          LEFT JOIN "Service" s ON s.id = b."serviceId"
+          WHERE b.date > ${now} AND b.date < ${rangeUpper}
+          ORDER BY b.date ASC
+        `) || [])
+      : ((await prisma.$queryRaw<BookingRow[]>`
+          SELECT b.id, b.date, b."clientName", b."clientEmail", s.name AS "serviceName"
+          FROM "Booking" b
+          LEFT JOIN "Service" s ON s.id = b."serviceId"
+          WHERE b.date > ${now} AND b.date < ${rangeUpper}
+          AND b.status = 'BESTAETIGT' AND COALESCE(b."reminderSent", false) = false
+          ORDER BY b.date ASC
+        `) || []);
     for (const b of bookings) {
       try {
         const when = new Date(b.date);
@@ -49,7 +58,9 @@ export async function GET(req: Request) {
         const ok = dry ? true : await sendReminderEmail({ to: b.clientEmail, name: b.clientName, date: dateStr, time: timeStr, serviceName: b.serviceName || "" });
         if (ok) {
             try {
-              await prisma.$executeRawUnsafe('UPDATE "Booking" SET "reminderSent" = true WHERE id = ' + b.id);
+              await prisma.$executeRaw`
+                UPDATE "Booking" SET "reminderSent" = true WHERE id = ${b.id}
+              `;
             } catch {}
           sentCount++;
         }

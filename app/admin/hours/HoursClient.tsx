@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type WH = { id?: number; dayOfWeek: number; startTime: string; endTime: string; isOpen: boolean; breakStart?: string | null; breakEnd?: string | null };
@@ -19,7 +19,9 @@ function timeOptions(): string[] {
   return list;
 }
 
-export default function HoursClient({ initial }: Readonly<{ initial: WH[] }>) {
+export default function HoursClient({ initial, initialBlocks }: Readonly<{ initial: WH[]; initialBlocks?: { id: number; date: string; startTime: string; endTime: string; reason?: string | null }[] }>) {
+  const hoursRef = useRef<HTMLDivElement | null>(null);
+  const slotsRef = useRef<HTMLDivElement | null>(null);
   const router = useRouter();
   const initialMap = useMemo<WHMap>(() => {
     const base: WHMap = {
@@ -41,6 +43,9 @@ export default function HoursClient({ initial }: Readonly<{ initial: WH[] }>) {
   const [showSuccess, setShowSuccess] = useState(false);
   const [showConflict, setShowConflict] = useState(false);
   const [conflicts, setConflicts] = useState<{ clientName: string; date: string; time: string; phone: string; email: string }[]>([]);
+  const toMinutes = (hm: string) => { const [hh, mm] = hm.split(":").map((x) => Number.parseInt(x, 10)); return hh * 60 + mm; };
+  const invalidMessage = "Die Öffnungszeit muss früher als die Schließzeit sein";
+  function isInvalidDay(d: number): boolean { const h = hours[d]; if (!h?.isOpen) return false; return toMinutes(h.startTime) >= toMinutes(h.endTime); }
 
   function isDirty(): boolean {
     for (let d = 0; d <= 6; d++) {
@@ -109,53 +114,62 @@ export default function HoursClient({ initial }: Readonly<{ initial: WH[] }>) {
 
   return (
     <div>
-      <h1 className="text-2xl text-[#C5A059] mb-4">Öffnungszeiten</h1>
-      <div className="overflow-x-auto">
-        <table className="min-w-full border border-[#C5A059] bg-black">
+      <div className="sticky top-[72px] md:top-0 z-40 bg-black border-b border-neutral-800 md:hidden">
+        <div className="grid grid-cols-2 gap-2 p-2">
+          <button className="px-3 py-2 rounded border border-[#C5A059] text-[#C5A059]" onClick={() => hoursRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Öffnungszeiten</button>
+          <button className="px-3 py-2 rounded border border-[#C5A059] text-[#C5A059]" onClick={() => slotsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}>Slot‑Blocker</button>
+        </div>
+      </div>
+      <div ref={hoursRef}>
+        <h1 className="text-2xl text-[#C5A059] mb-4">Öffnungszeiten</h1>
+      </div>
+      <div className="overflow-x-auto -mx-6 md:mx-0">
+        <table className="w-full border border-[#C5A059] bg-black">
           <thead className="bg-neutral-900">
             <tr>
               <th className="px-4 py-2 text-left text-[#C5A059]">Tag</th>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Geöffnet</th>
+              <th className="px-2 md:px-4 py-2 text-left text-[#C5A059] w-16 md:w-auto">Geöffnet</th>
               <th className="px-4 py-2 text-left text-[#C5A059]">Start</th>
               <th className="px-4 py-2 text-left text-[#C5A059]">Ende</th>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Pause Start</th>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Pause Ende</th>
+              <th className="px-4 py-2 text-left text-[#C5A059] hidden md:table-cell">Pause Start</th>
+              <th className="px-4 py-2 text-left text-[#C5A059] hidden md:table-cell">Pause Ende</th>
             </tr>
           </thead>
           <tbody>
             {Array.from({ length: 7 }, (_, d) => d).map((d) => {
               const h = hours[d];
               return (
-              <tr key={d} className="border-t border-neutral-800">
-                <td className="px-4 py-2">{["So","Mo","Di","Mi","Do","Fr","Sa"][d]}</td>
-                <td className="px-4 py-2">
-                  <input type="checkbox" checked={h.isOpen} onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], isOpen: e.target.checked } }))} />
-                </td>
-                <td className="px-4 py-2">
-                  <select
-                    className="px-2 py-1 rounded bg-black border border-neutral-700 text-white"
-                    value={h.startTime}
-                    disabled={!h.isOpen}
-                    onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], startTime: e.target.value } }))}
-                  >
-                    {timeOptions().map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-4 py-2">
-                  <select
-                    className="px-2 py-1 rounded bg-black border border-neutral-700 text-white"
-                    value={h.endTime}
-                    disabled={!h.isOpen}
-                    onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], endTime: e.target.value } }))}
-                  >
-                    {timeOptions().map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="px-4 py-2">
+                <React.Fragment key={d}>
+                <tr className="border-t border-neutral-800">
+                  <td className="px-4 py-2">{["So","Mo","Di","Mi","Do","Fr","Sa"][d]}</td>
+                  <td className="px-2 md:px-4 py-2 w-16 md:w-auto">
+                    <input type="checkbox" checked={h.isOpen} onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], isOpen: e.target.checked } }))} />
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      className={`px-2 py-1 rounded bg-black border ${isInvalidDay(d) ? "border-red-600" : "border-neutral-700"} text-white w-[110px] md:w-auto`}
+                      value={h.startTime}
+                      disabled={!h.isOpen}
+                      onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], startTime: e.target.value } }))}
+                    >
+                      {timeOptions().map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="px-4 py-2">
+                    <select
+                      className={`px-2 py-1 rounded bg-black border ${isInvalidDay(d) ? "border-red-600" : "border-neutral-700"} text-white w-[110px] md:w-auto`}
+                      value={h.endTime}
+                      disabled={!h.isOpen}
+                      onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], endTime: e.target.value } }))}
+                    >
+                      {timeOptions().map((t) => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </td>
+                <td className="px-4 py-2 hidden md:table-cell">
                   <select
                     className="px-2 py-1 rounded bg-black border border-neutral-700 text-white"
                     value={h.breakStart || ""}
@@ -168,7 +182,7 @@ export default function HoursClient({ initial }: Readonly<{ initial: WH[] }>) {
                     ))}
                   </select>
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 hidden md:table-cell">
                   <select
                     className="px-2 py-1 rounded bg-black border border-neutral-700 text-white"
                     value={h.breakEnd || ""}
@@ -182,12 +196,45 @@ export default function HoursClient({ initial }: Readonly<{ initial: WH[] }>) {
                   </select>
                 </td>
               </tr>
-            );})}
+              <tr className="border-t border-neutral-800 md:hidden">
+                <td className="px-4 py-2 text-[#C5A059]" colSpan={2}>Pause</td>
+                <td className="px-4 py-2">
+                  <select
+                    className="px-2 py-1 rounded bg-black border border-neutral-700 text-white w-[110px] md:w-auto"
+                    value={h.breakStart || ""}
+                    disabled={!h.isOpen}
+                    onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], breakStart: e.target.value || null } }))}
+                  >
+                    <option value="">(keine)</option>
+                    {timeOptions().map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </td>
+                <td className="px-4 py-2">
+                  <select
+                    className="px-2 py-1 rounded bg-black border border-neutral-700 text-white w-[110px] md:w-auto"
+                    value={h.breakEnd || ""}
+                    disabled={!h.isOpen}
+                    onChange={(e) => setHours((prev) => ({ ...prev, [d]: { ...prev[d], breakEnd: e.target.value || null } }))}
+                  >
+                    <option value="">(keine)</option>
+                    {timeOptions().map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </td>
+              </tr>
+              </React.Fragment>
+              );})}
           </tbody>
         </table>
+        {Array.from({ length: 7 }, (_, d) => d).some(isInvalidDay) && (
+          <div className="mt-3 text-sm text-red-500">{invalidMessage}</div>
+        )}
       </div>
       <div className="mt-4">
-        <button disabled={saving || !isDirty()} onClick={save} className="px-4 py-2 rounded bg-[#C5A059] text-black disabled:opacity-50">Änderungen speichern</button>
+        <button disabled={saving || !isDirty() || Array.from({ length: 7 }, (_, d) => d).some(isInvalidDay)} onClick={save} className="px-4 py-2 rounded bg-[#C5A059] text-black disabled:opacity-50">Änderungen speichern</button>
       </div>
 
       {showSuccess && (
@@ -252,15 +299,16 @@ export default function HoursClient({ initial }: Readonly<{ initial: WH[] }>) {
         </div>
       )}
 
-      <div className="mt-10">
+      <div ref={slotsRef} id="slot-blocker" className="mt-10">
         <h2 className="text-xl text-[#C5A059] mb-3">Slot‑Blocker (Einmalige Sperren)</h2>
-        <SlotBlockerAdmin />
+        <div className="text-sm text-neutral-400 mb-3">Erfassen Sie geplante Abwesenheiten (Ferien, Arzttermine usw.)</div>
+        <SlotBlockerAdmin initial={initialBlocks ?? []} />
       </div>
     </div>
   );
 }
 
-function SlotBlockerAdmin() {
+function SlotBlockerAdmin({ initial }: Readonly<{ initial: { id: number; date: string; startTime: string; endTime: string; reason?: string | null }[] }>) {
   const [date, setDate] = useState<string>(() => {
     const now = new Date();
     const y = now.getFullYear();
@@ -269,9 +317,57 @@ function SlotBlockerAdmin() {
     return `${y}-${m}-${d}`;
   });
   const [start, setStart] = useState<string>("09:00");
-  const [end, setEnd] = useState<string>("09:15");
+  const [end, setEnd] = useState<string>("09:30");
   const [reason, setReason] = useState<string>("");
-  const [list, setList] = useState<{ id: number; date: string; startTime: string; endTime: string; reason?: string | null }[]>([]);
+  const [list, setList] = useState<{ id: number; date: string; startTime: string; endTime: string; reason?: string | null }[]>(initial);
+  const [error, setError] = useState<string>("");
+  const [toast, setToast] = useState<string>("");
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [endDate, setEndDate] = useState<string>(date);
+  const toMinutes = (hm: string) => { const [hh, mm] = hm.split(":").map((x) => Number.parseInt(x, 10)); return hh * 60 + mm; };
+  const invalidMessageSB = "Die Öffnungszeit muss früher als die Schließzeit sein";
+  const [filterDate, setFilterDate] = useState<string>("");
+  const [filterReason, setFilterReason] = useState<string>("");
+  const [filterStart, setFilterStart] = useState<string>("");
+  const [filterEnd, setFilterEnd] = useState<string>("");
+  const toYMDZurich = (dt: Date) => {
+    const parts = new Intl.DateTimeFormat("de-CH", { timeZone: "Europe/Zurich", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(dt);
+    const y = parts.find((p) => p.type === "year")?.value || String(dt.getFullYear());
+    const m = parts.find((p) => p.type === "month")?.value || String(dt.getMonth() + 1).padStart(2, "0");
+    const d = parts.find((p) => p.type === "day")?.value || String(dt.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  };
+  const filteredList = useMemo(() => {
+    const arr = list.filter((b) => {
+      const dk = toYMDZurich(new Date(b.date));
+      const byExact = !filterDate || dk === filterDate;
+      const byStart = !filterStart || dk >= filterStart;
+      const byEnd = !filterEnd || dk <= filterEnd;
+      const byReason = !filterReason || (b.reason || "").toLowerCase().includes(filterReason.toLowerCase());
+      return byExact && byStart && byEnd && byReason;
+    });
+    return arr.sort((a, b) => {
+      const ta = new Date(a.date).getTime();
+      const tb = new Date(b.date).getTime();
+      if (tb !== ta) return tb - ta;
+      const ma = toMinutes(a.startTime);
+      const mb = toMinutes(b.startTime);
+      return mb - ma;
+    });
+  }, [list, filterDate, filterStart, filterEnd, filterReason]);
+
+  const isInvalid = (() => {
+    const sd = new Date(date);
+    const ed = new Date(endDate);
+    if (Number.isNaN(sd.getTime()) || Number.isNaN(ed.getTime())) return true;
+    if (sd.getTime() === ed.getTime()) {
+      return toMinutes(start) >= toMinutes(end);
+    }
+    const startDT = new Date(`${date}T${start}:00`);
+    const endDT = new Date(`${endDate}T${end}:00`);
+    return !(endDT.getTime() > startDT.getTime());
+  })();
 
   async function load() {
     try {
@@ -285,51 +381,106 @@ function SlotBlockerAdmin() {
 
   async function add() {
     try {
-      const d = new Date(date);
-      const res = await fetch("/api/blockers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: d.toISOString(), startTime: start, endTime: end, reason }) });
+      setError("");
+      if (isInvalid) { setError(invalidMessageSB); return; }
+      const payload: Record<string, unknown> = { date, startTime: start, endTime: end, reason };
+      if (endDate !== date) payload.endDate = endDate;
+      const res = await fetch("/api/blockers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
       if (res.ok) {
         load();
+      } else {
+        try {
+          const data = await res.json();
+          const msg = typeof data?.error === "string" && data.error.length > 0 ? data.error : "Fehler beim Erstellen der Sperre";
+          setError(msg);
+          setToast(msg);
+          setTimeout(() => setToast(""), 3000);
+        } catch {
+          setError("Fehler beim Erstellen der Sperre");
+        }
       }
     } catch {}
   }
 
   async function del(id: number) {
     try {
+      const item = list.find((x) => x.id === id);
       const res = await fetch(`/api/blockers?id=${id}`, { method: "DELETE" });
-      if (res.ok) load();
+      if (res.ok) {
+        load();
+        if (item) {
+          const d = new Date(item.date);
+          const datum = d.toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Zurich" });
+          setToast(`Usunięto slot: ${datum} ${item.startTime}–${item.endTime}`);
+          setTimeout(() => setToast(""), 3000);
+        }
+      }
     } catch {}
   }
 
+  useEffect(() => { /* initial list provided server-side */ }, []);
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+      {toast && (
+        <div className="fixed top-3 right-3 z-50 px-3 py-2 rounded bg-neutral-800 text-neutral-200 border border-[#C5A059] shadow-2xl">{toast}</div>
+      )}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 items-end">
         <div>
-          <div className="text-sm text-neutral-300 mb-1">Datum</div>
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="px-3 py-2 rounded bg-black border border-neutral-700 text-white" />
+          <div className="text-sm text-neutral-300 mb-1">Datum von</div>
+          <input type="date" value={date} onChange={(e) => { setDate(e.target.value); if (error) setError(""); }} className={`px-3 py-2 rounded bg-black border ${isInvalid ? "border-red-600" : "border-neutral-700"} text-white`} />
         </div>
         <div>
           <div className="text-sm text-neutral-300 mb-1">Zeit von</div>
-          <select value={start} onChange={(e) => setStart(e.target.value)} className="px-2 py-2 rounded bg-black border border-neutral-700 text-white">
+          <select value={start} onChange={(e) => { setStart(e.target.value); if (error) setError(""); }} className={`px-2 py-2 rounded bg-black border ${isInvalid ? "border-red-600" : "border-neutral-700"} text-white`}>
             {timeOptions().map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+        </div>
+        <div>
+          <div className="text-sm text-neutral-300 mb-1">Datum bis</div>
+          <input type="date" value={endDate} onChange={(e) => { setEndDate(e.target.value); if (error) setError(""); }} className={`px-3 py-2 rounded bg-black border ${isInvalid ? "border-red-600" : "border-neutral-700"} text-white`} />
         </div>
         <div>
           <div className="text-sm text-neutral-300 mb-1">Zeit bis</div>
-          <select value={end} onChange={(e) => setEnd(e.target.value)} className="px-2 py-2 rounded bg-black border border-neutral-700 text-white">
+          <select value={end} onChange={(e) => { setEnd(e.target.value); if (error) setError(""); }} className={`px-2 py-2 rounded bg-black border ${isInvalid ? "border-red-600" : "border-neutral-700"} text-white`}>
             {timeOptions().map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
         </div>
-        <div>
-          <div className="text-sm text-neutral-300 mb-1">Grund</div>
-          <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="z.B. Arzt" className="px-3 py-2 rounded bg-black border border-neutral-700 text-white" />
-        </div>
-        <div>
-          <button onClick={add} className="px-4 py-2 rounded bg-[#C5A059] text-black">Termin sperren</button>
+        <div className="md:col-span-2 flex flex-col md:flex-row items-end gap-3">
+          <div className="flex-1">
+            <div className="text-sm text-neutral-300 mb-1">Grund</div>
+            <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="z.B. Arzt" className="px-3 py-2 rounded bg-black border border-neutral-700 text-white w-full" />
+          </div>
+          <button disabled={isInvalid} onClick={add} className="px-4 py-2 rounded bg-[#C5A059] text-black disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0 whitespace-nowrap">Termin sperren</button>
         </div>
       </div>
+      {(error || isInvalid) && <div className="text-sm text-red-500">{error || invalidMessageSB}</div>}
+      <div className="border-t border-[#C5A059] my-4" />
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full border border-[#C5A059] bg-black">
+      <div className="flex flex-col gap-2">
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
+          <div>
+            <div className="text-sm text-neutral-300 mb-1">Filter Datum</div>
+            <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="px-3 py-2 rounded bg-black border border-neutral-700 text-white w-full" />
+          </div>
+          <div>
+            <div className="text-sm text-neutral-300 mb-1">Von</div>
+            <input type="date" value={filterStart} onChange={(e) => setFilterStart(e.target.value)} className="px-3 py-2 rounded bg-black border border-neutral-700 text-white w-full" />
+          </div>
+          <div>
+            <div className="text-sm text-neutral-300 mb-1">Bis</div>
+            <input type="date" value={filterEnd} onChange={(e) => setFilterEnd(e.target.value)} className="px-3 py-2 rounded bg-black border border-neutral-700 text-white w-full" />
+          </div>
+          <div>
+            <div className="text-sm text-neutral-300 mb-1">Filter Grund</div>
+            <input value={filterReason} onChange={(e) => setFilterReason(e.target.value)} placeholder="z.B. Arzt" className="px-3 py-2 rounded bg-black border border-neutral-700 text-white w-full" />
+          </div>
+          <div className="col-span-2 md:col-span-2 flex items-end gap-2">
+            <button onClick={() => { setFilterDate(""); setFilterStart(""); setFilterEnd(""); setFilterReason(""); }} className="px-3 py-2 rounded border border-neutral-700 text-white">Alle anzeigen</button>
+          </div>
+        </div>
+        <div className="md:overflow-x-auto overflow-x-hidden -mx-6 md:mx-0 max-h-80 overflow-y-auto">
+          <table className="w-full border border-[#C5A059] bg-black">
           <thead className="bg-neutral-900">
             <tr>
               <th className="px-3 py-2 text-left text-[#C5A059]">Datum</th>
@@ -339,7 +490,7 @@ function SlotBlockerAdmin() {
             </tr>
           </thead>
           <tbody>
-            {list.map((b) => {
+            {filteredList.map((b) => {
               const d = new Date(b.date);
               const datum = d.toLocaleDateString("de-CH", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Zurich" });
               return (
@@ -347,13 +498,33 @@ function SlotBlockerAdmin() {
                   <td className="px-3 py-2">{datum}</td>
                   <td className="px-3 py-2">{b.startTime}–{b.endTime}</td>
                   <td className="px-3 py-2">{b.reason || ""}</td>
-                  <td className="px-3 py-2"><button onClick={() => del(b.id)} className="px-3 py-1 rounded bg-red-600 text-white">X</button></td>
+                  <td className="px-3 py-2"><button onClick={() => { setConfirmId(b.id); setConfirmOpen(true); }} className="px-3 py-1 rounded bg-red-600 text-white">X</button></td>
                 </tr>
               );
             })}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
+
+      {confirmOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-neutral-900 border border-[#C5A059] rounded p-6 w-full max-w-md">
+            <div className="text-xl text-[#C5A059] mb-4">Bestätigung</div>
+            <div className="text-white mb-6">Möchten Sie diesen Slot wirklich löschen?</div>
+            <div className="flex justify-end gap-3">
+              <button
+                className="px-4 py-2 rounded bg-[#C5A059] text-black"
+                onClick={() => { if (confirmId) del(confirmId); setConfirmOpen(false); setConfirmId(null); }}
+              >Ja, sicher</button>
+              <button
+                className="px-4 py-2 rounded border border-neutral-700 text-white"
+                onClick={() => { setConfirmOpen(false); setConfirmId(null); }}
+              >Abbrechen</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

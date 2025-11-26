@@ -80,25 +80,25 @@ export default function ServicesClient({ initial }: Readonly<{ initial: Service[
         </button>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full border border-[#C5A059] bg-black">
+      <div className="md:overflow-x-auto overflow-x-hidden -mx-6 md:mx-0">
+        <table className="w-full border border-[#C5A059] bg-black">
           <thead className="bg-neutral-900">
             <tr>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Name</th>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Cena (CHF)</th>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Dauer (Min)</th>
-              <th className="px-4 py-2 text-left text-[#C5A059]">Aktionen</th>
+              <th className="px-2 md:px-4 py-2 text-left text-[#C5A059]">Name</th>
+              <th className="px-2 md:px-4 py-2 text-left text-[#C5A059]">Preise (CHF)</th>
+              <th className="px-2 md:px-4 py-2 text-left text-[#C5A059]">Dauer (Min)</th>
+              <th className="px-2 md:px-4 py-2 text-left text-[#C5A059]">Aktionen</th>
             </tr>
           </thead>
           <tbody>
             {services.map((s) => (
               <tr key={s.id} className="border-t border-neutral-800 hover:bg-neutral-900 cursor-pointer" onClick={() => openEdit(s)}>
-                <td className="px-4 py-2 text-white">{s.name}</td>
-                <td className="px-4 py-2 text-white">{s.priceCHF}</td>
-                <td className="px-4 py-2 text-white">{s.duration}</td>
-                <td className="px-4 py-2">
+                <td className="px-2 md:px-4 py-2 text-white">{s.name}</td>
+                <td className="px-2 md:px-4 py-2 text-white">{s.priceCHF}</td>
+                <td className="px-2 md:px-4 py-2 text-white">{s.duration}</td>
+                <td className="px-2 md:px-4 py-2">
                   <button
-                    className="flex items-center px-3 py-1 rounded text-[#C5A059] hover:bg-neutral-800 hover:text-[#d6b064]"
+                    className="flex items-center px-2 md:px-3 py-1 rounded text-[#C5A059] hover:bg-neutral-800 hover:text-[#d6b064] text-sm md:text-base"
                     aria-label="Verwalten"
                     onClick={(e) => { e.stopPropagation(); openEdit(s); }}
                   >

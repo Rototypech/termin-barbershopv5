@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import BrandHeader from "../components/BrandHeader";
 import CookieConsent from "../components/CookieConsent";
+import Image from "next/image";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -44,12 +45,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="de">
+    <html lang="de" className="dark bg-black">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background min-h-[100dvh]`}
       >
         <BrandHeader />
         {children}
+        <a
+          href="https://www.rototype.ch/"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="fixed bottom-2 right-2 flex items-center gap-2 text-xs text-neutral-400 hover:text-[#C5A059]"
+        >
+          <Image src="/logo_rototype.png" alt="Rototype" width={16} height={16} className="h-4 w-auto" />
+          Powered by rototype.ch
+        </a>
         <CookieConsent />
       </body>
     </html>

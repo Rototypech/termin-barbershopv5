@@ -55,6 +55,12 @@ export async function PUT(request: Request) {
         return { dayOfWeek: day, isOpen, startTime, endTime, breakStart, breakEnd };
       });
 
+    const toMinutes = (hm: string) => { const [hh, mm] = hm.split(":").map((x) => Number.parseInt(x, 10)); return hh * 60 + mm; };
+    const invalid = valid.some((v) => v.isOpen && toMinutes(String(v.startTime)) >= toMinutes(String(v.endTime)));
+    if (invalid) {
+      return NextResponse.json({ error: "Die Öffnungszeit muss früher als die Schließzeit sein" }, { status: 400 });
+    }
+
     const now = new Date();
     const bookings = await prisma.booking.findMany({ where: { date: { gt: now } } });
     const conflicts: { clientName: string; date: string; time: string; phone: string; email: string }[] = [];

@@ -1,7 +1,7 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
-type Slot = { time: string; state: "free" | "blocked" | "booked" };
+type Slot = { time: string; state: "free" | "blocked" | "booked"; source?: "recurring" | "manual" };
 
 function colorFor(state: Slot["state"]): string {
   if (state === "free") return "bg-green-600 border-green-600 text-black";
@@ -9,44 +9,102 @@ function colorFor(state: Slot["state"]): string {
   return "bg-red-600 border-red-600 text-white";
 }
 
-function generateSlots(): Slot[] {
-  const out: Slot[] = [];
-  const base = new Date();
-  base.setHours(9, 0, 0, 0);
-  for (let i = 0; i < (8 * 2 + 1); i++) { // 09:00..17:00 every 30 min
-    const h = String(base.getHours()).padStart(2, "0");
-    const m = String(base.getMinutes()).padStart(2, "0");
-    const t = `${h}:${m}`;
-    const rand = Math.random();
-    const state: Slot["state"] = rand < 0.15 ? "booked" : "free"; // 15% booked as mock
-    out.push({ time: t, state });
-    base.setMinutes(base.getMinutes() + 30);
+async function fetchSlots(dateStr: string): Promise<Slot[]> {
+  try {
+    const [slotsRes, blocksRes] = await Promise.all([
+      fetch(`/api/slots?date=${dateStr}&duration=30`),
+      fetch(`/api/admin/manual-blocks?date=${dateStr}`),
+    ]);
+    const data = (await slotsRes.json()) as { time: string; isBooked: boolean }[];
+    const blocks = (await blocksRes.json()) as { startTime: string; endTime: string; id: number }[];
+    const toMin = (hm: string) => {
+      const [hh, mm] = hm.split(":").map((x) => Number.parseInt(x, 10));
+      return hh * 60 + mm;
+    };
+    const manualIntervals = Array.isArray(blocks) ? blocks.map((b) => ({ start: toMin(b.startTime), end: toMin(b.endTime) })) : [];
+    return Array.isArray(data)
+      ? data.map((s) => {
+          const [hh, mm] = s.time.split(":").map((x) => Number.parseInt(x, 10));
+          const start = hh * 60 + mm;
+          const end = start + 30;
+          const isManual = manualIntervals.some((bi) => start < bi.end && end > bi.start);
+          return { time: s.time, state: s.isBooked ? "blocked" : "free", source: isManual ? "manual" : undefined };
+        })
+      : [];
+  } catch {
+    return [];
   }
-  return out;
 }
 
 export default function DayBlocker() {
-  const [date, setDate] = useState<string>("");
-  const [slots, setSlots] = useState<Slot[]>(() => generateSlots());
+  const [date, setDate] = useState<string>(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  });
+  const [slots, setSlots] = useState<Slot[]>([]);
+  const [toast, setToast] = useState<string | null>(null);
+
+  async function reload(current: string, showToast = false) {
+    const s = await fetchSlots(current);
+    setSlots(s);
+    if (showToast) {
+      setToast("Slot‑Zeiten aktualisiert");
+      setTimeout(() => setToast(null), 2000);
+    }
+  }
 
   function handleDateChange(v: string) {
     setDate(v);
-    setSlots(generateSlots());
+    reload(v);
   }
+
+  useEffect(() => {
+    reload(date);
+    const handler = () => reload(date, true);
+    globalThis.addEventListener?.("recurring-breaks-updated", handler as EventListener);
+    return () => {
+      globalThis.removeEventListener?.("recurring-breaks-updated", handler as EventListener);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const gridCols = useMemo(() => "grid-cols-4 md:grid-cols-8", []);
 
   function toggle(idx: number) {
-    setSlots((prev) => prev.map((s, i) => {
-      if (i !== idx) return s;
-      if (s.state === "booked") return s;
-      return { ...s, state: s.state === "free" ? "blocked" : "free" };
-    }));
+    const target = slots[idx];
+    if (!target || target.state === "booked" || target.source === "recurring") return;
+    const [hh, mm] = target.time.split(":").map((x) => Number.parseInt(x, 10));
+    const startDate = new Date(date);
+    startDate.setHours(hh, mm, 0, 0);
+    const body = { date: startDate.toISOString(), start: target.time, end: (() => {
+      const m = (mm + 15);
+      const h = hh + Math.floor(m / 60);
+      const rm = m % 60;
+      return `${String(h).padStart(2, "0")}:${String(rm).padStart(2, "0")}`;
+    })() };
+    const isManual = target.source === "manual";
+    (async () => {
+      try {
+        if (!isManual && target.state === "free") {
+          const r = await fetch("/api/admin/manual-blocks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+          if (r.ok) {
+            await reload(date, true);
+            try { globalThis.dispatchEvent?.(new Event("recurring-breaks-updated")); } catch {}
+          }
+        }
+      } catch {}
+    })();
   }
 
   return (
     <div className="border border-[#C5A059] rounded-lg bg-black p-4">
       <div className="text-xl text-[#C5A059] mb-4">Slot-Blocker</div>
+      {toast && (
+        <div className="mb-3 px-3 py-2 rounded bg-neutral-800 text-neutral-200 border border-neutral-700">{toast}</div>
+      )}
       <div className="mb-3">
         <input
           type="date"

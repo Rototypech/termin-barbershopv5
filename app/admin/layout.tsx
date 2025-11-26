@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import AdminLayoutClient from "../../components/admin/AdminLayoutClient";
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
   title: "Barber Admin Panel",
@@ -14,6 +16,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default async function AdminLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+  const c = await cookies();
+  const s = c.get("admin_session");
+  if (!s) {
+    redirect("/login");
+  }
   return <AdminLayoutClient>{children}</AdminLayoutClient>;
 }

@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { Pencil } from "lucide-react";
+import { format, eachDayOfInterval, startOfWeek, endOfWeek } from "date-fns";
+import { de } from "date-fns/locale/de";
 
 const DATE_FORMATTER = new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "2-digit", year: "numeric", timeZone: "Europe/Zurich" });
 const TIME_FORMATTER = new Intl.DateTimeFormat("de-CH", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Europe/Zurich" });
@@ -25,59 +27,49 @@ export default function AdminClient({ initial, initialServices }: Readonly<{ ini
   const [isCancelConfirmOpen, setIsCancelConfirmOpen] = useState(false);
   const [filterClient, setFilterClient] = useState("");
   const [filterDate, setFilterDate] = useState("");
+  const [filterDateRange, setFilterDateRange] = useState<{ start: string; end: string } | null>(null);
   const [filterService, setFilterService] = useState("ALL");
   const [filterStatus, setFilterStatus] = useState<"ALL" | "BESTAETIGT" | "STORNIERT" | "NO_SHOW" | "ABGESCHLOSSEN">("ALL");
   const [servicesList] = useState<Service[]>(initialServices);
-  const [filterYear, setFilterYear] = useState("");
-  const [filterMonth, setFilterMonth] = useState("");
-  const [filterDay, setFilterDay] = useState("");
+  const now = useMemo(() => new Date(), []);
+  const [selectedYear, setSelectedYear] = useState<number>(now.getFullYear());
+  const [sortOrder, setSortOrder] = useState<"ASC" | "DESC">("DESC");
+  const [selectedDayValue, setSelectedDayValue] = useState<string>(() => {
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${m}-${d}`;
+  });
+  const [dateFilterActive, setDateFilterActive] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const yearsList = useMemo(() => {
-    const ys = new Set<number>();
-    for (const b of bookings) {
-      ys.add(new Date(b.date).getFullYear());
-    }
-    const arr = Array.from(ys).sort((a, b) => a - b);
-    if (arr.length === 0) {
-      const cy = new Date().getFullYear();
-      return [cy, cy + 1];
-    }
-    return arr;
-  }, [bookings]);
+    const current = now.getFullYear();
+    return [current - 1, current, current + 1];
+  }, [now]);
 
-  function daysInMonth(year: number, month: number) {
-    if (!year || !month) return 31;
-    return new Date(year, month, 0).getDate();
+  function generateDaysOfYear(year: number) {
+    const start = new Date(year, 0, 1);
+    const end = new Date(year, 11, 31);
+    const days = eachDayOfInterval({ start, end });
+    return days.map((d) => {
+      const value = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      const label = format(d, "dd MMM - EEEE", { locale: de });
+      return { value, label };
+    });
   }
 
-  const daysList = useMemo(() => {
-    const y = Number.parseInt(filterYear || "0", 10);
-    const m = Number.parseInt(filterMonth || "0", 10);
-    const max = daysInMonth(y, m);
-    return Array.from({ length: max }, (_, i) => i + 1);
-  }, [filterYear, filterMonth]);
+  const daysOptions = useMemo(() => generateDaysOfYear(selectedYear), [selectedYear]);
 
   useEffect(() => {
-    if (filterDay) {
-      const y = Number.parseInt(filterYear || "0", 10);
-      const m = Number.parseInt(filterMonth || "0", 10);
-      const max = daysInMonth(y, m);
-      const d = Number.parseInt(filterDay, 10);
-      if (d > max) setFilterDay(String(max));
-    }
-  }, [filterYear, filterMonth, filterDay]);
-
-  useEffect(() => {
-    if (filterYear && filterMonth && filterDay) {
-      const y = filterYear;
-      const m = String(Number.parseInt(filterMonth, 10)).padStart(2, "0");
-      const d = String(Number.parseInt(filterDay, 10)).padStart(2, "0");
-      setFilterDate(`${y}-${m}-${d}`);
+    if (!dateFilterActive) return;
+    if (selectedYear && selectedDayValue) {
+      setFilterDate(`${String(selectedYear)}-${selectedDayValue}`);
+      setFilterDateRange(null);
     } else {
       setFilterDate("");
+      setFilterDateRange(null);
     }
-  }, [filterYear, filterMonth, filterDay]);
+  }, [selectedYear, selectedDayValue, dateFilterActive]);
 
   useEffect(() => {
     setBookings(initial);
@@ -89,14 +81,28 @@ export default function AdminClient({ initial, initialServices }: Readonly<{ ini
     const clientHaystack = `${b.clientName} ${b.clientPhone} ${b.clientEmail ?? ""}`.toLowerCase();
     const serviceHaystack = `${b.service?.name ?? ""}`.toLowerCase();
     const passClient = filterClient ? clientHaystack.includes(filterClient.toLowerCase()) : true;
-    const passDate = filterDate ? dateStr === filterDate : true;
+    const passDate = filterDateRange
+      ? dateStr >= filterDateRange.start && dateStr <= filterDateRange.end
+      : filterDate
+        ? dateStr === filterDate
+        : true;
     const passService = filterService === "ALL" ? true : serviceHaystack === filterService.toLowerCase();
     const passStatus = filterStatus === "ALL" ? true : b.status === filterStatus;
     return passClient && passDate && passService && passStatus;
   });
 
+  const sortedBookings = useMemo(() => {
+    const arr = [...filteredBookings];
+    arr.sort((a, b) => {
+      const ad = new Date(a.date).getTime();
+      const bd = new Date(b.date).getTime();
+      return sortOrder === "ASC" ? ad - bd : bd - ad;
+    });
+    return arr;
+  }, [filteredBookings, sortOrder]);
+
   return (
-    <div className="overflow-x-auto">
+    <div className="md:overflow-x-auto overflow-x-hidden">
       {toastMessage && (
         <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 px-4 py-2 rounded-lg bg-neutral-900 border border-[#C5A059] text-white shadow-2xl">
           {toastMessage}
@@ -113,32 +119,30 @@ export default function AdminClient({ initial, initialServices }: Readonly<{ ini
         </div>
         <select
           className="px-3 py-2 rounded bg-black border border-neutral-700 text-white"
-          value={filterDay}
-          onChange={(e) => setFilterDay(e.target.value)}
+          value={String(selectedYear)}
+          onChange={(e) => {
+            const y = Number.parseInt(e.target.value, 10);
+            const mm = String(now.getMonth() + 1).padStart(2, "0");
+            const dd = String(now.getDate()).padStart(2, "0");
+            const candidate = `${mm}-${dd}`;
+            const opts = generateDaysOfYear(y);
+            const exists = opts.some((o) => o.value === candidate);
+            setSelectedYear(y);
+            setSelectedDayValue(exists ? candidate : opts[0]?.value ?? "01-01");
+            setDateFilterActive(true);
+          }}
         >
-          <option value="">Tag</option>
-          {daysList.map((d) => (
-            <option key={d} value={String(d)}>{d}</option>
-          ))}
-        </select>
-        <select
-          className="px-3 py-2 rounded bg-black border border-neutral-700 text-white"
-          value={filterMonth}
-          onChange={(e) => setFilterMonth(e.target.value)}
-        >
-          <option value="">Monat</option>
-          {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-            <option key={m} value={String(m)}>{m}</option>
-          ))}
-        </select>
-        <select
-          className="px-3 py-2 rounded bg-black border border-neutral-700 text-white"
-          value={filterYear}
-          onChange={(e) => setFilterYear(e.target.value)}
-        >
-          <option value="">Jahr</option>
           {yearsList.map((y) => (
             <option key={y} value={String(y)}>{y}</option>
+          ))}
+        </select>
+        <select
+          className="px-3 py-2 rounded bg-black border border-neutral-700 text-white w-64 md:w-96"
+          value={selectedDayValue}
+          onChange={(e) => { setSelectedDayValue(e.target.value); setDateFilterActive(true); }}
+        >
+          {daysOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
         </select>
         <select
@@ -162,63 +166,141 @@ export default function AdminClient({ initial, initialServices }: Readonly<{ ini
           <option value="ABGESCHLOSSEN">Abgeschlossen</option>
           <option value="NO_SHOW">No Show</option>
         </select>
+        <select
+          className="px-3 py-2 rounded bg-black border border-neutral-700 text-white"
+          value={sortOrder}
+          onChange={(e) => setSortOrder(e.target.value as "ASC" | "DESC")}
+        >
+          <option value="DESC">Datum ↓</option>
+          <option value="ASC">Datum ↑</option>
+        </select>
         <button
           className="px-3 py-2 rounded border border-neutral-700 text-white"
-          onClick={() => { setFilterClient(""); setFilterDate(""); setFilterService("ALL"); setFilterStatus("ALL"); setFilterYear(""); setFilterMonth(""); setFilterDay(""); }}
+          onClick={() => {
+            setFilterClient("");
+            setFilterDate("");
+            setFilterDateRange(null);
+            setFilterService("ALL");
+            setFilterStatus("ALL");
+            setSortOrder("DESC");
+            const cy = now.getFullYear();
+            const m = String(now.getMonth() + 1).padStart(2, "0");
+            const d = String(now.getDate()).padStart(2, "0");
+            setSelectedYear(cy);
+            setSelectedDayValue(`${m}-${d}`);
+            setDateFilterActive(false);
+          }}
         >
-          Filter zurücksetzen
+          Alle anzeigen
+        </button>
+        <button
+          className="px-3 py-2 rounded border border-neutral-700 text-white"
+          onClick={() => {
+            const today = new Date();
+            const cy = today.getFullYear();
+            const m = String(today.getMonth() + 1).padStart(2, "0");
+            const d = String(today.getDate()).padStart(2, "0");
+            setSelectedYear(cy);
+            setSelectedDayValue(`${m}-${d}`);
+            setFilterDate(`${cy}-${m}-${d}`);
+            setFilterDateRange(null);
+          }}
+        >
+          Heute
+        </button>
+        <button
+          className="px-3 py-2 rounded border border-neutral-700 text-white"
+          onClick={() => {
+            const today = new Date();
+            const start = startOfWeek(today, { weekStartsOn: 1 });
+            const end = endOfWeek(today, { weekStartsOn: 1 });
+            const toStr = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}-${String(dt.getDate()).padStart(2, "0")}`;
+            setFilterDate("");
+            setFilterDateRange({ start: toStr(start), end: toStr(end) });
+            setSortOrder("ASC");
+          }}
+        >
+          Woche
         </button>
       </div>
-      <table className="min-w-full border border-[#C5A059] bg-black">
-        <thead className="bg-neutral-900">
-          <tr>
-            <th className="px-4 py-2 text-left text-[#C5A059]">Datum</th>
-            <th className="px-4 py-2 text-left text-[#C5A059]">Zeit</th>
-            <th className="px-4 py-2 text-left text-[#C5A059]">Kunde</th>
-            <th className="px-4 py-2 text-left text-[#C5A059]">Service</th>
-            <th className="px-4 py-2 text-left text-[#C5A059]">Status</th>
-            <th className="px-4 py-2 text-left text-[#C5A059]">Aktionen</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filteredBookings.map((b) => {
-            const d = new Date(b.date);
-            const datum = DATE_FORMATTER.format(d);
-            const zeit = TIME_FORMATTER.format(d);
-            return (
-              <tr key={b.id} className="border-t border-neutral-800">
-                <td className="px-4 py-2">{datum}</td>
-                <td className="px-4 py-2">{zeit}</td>
-                <td className="px-4 py-2">{b.clientName} – {b.clientPhone}</td>
-                <td className="px-4 py-2">{b.service?.name}</td>
-                <td className="px-4 py-2">
-                  {b.status === "BESTAETIGT" && (
-                    <span className="inline-block px-2 py-1 rounded bg-green-900 text-green-100 text-xs">Bestätigt</span>
-                  )}
-                  {b.status === "ABGESCHLOSSEN" && (
-                    <span className="inline-block px-2 py-1 rounded bg-neutral-700 text-neutral-300 text-xs">Abgeschlossen</span>
-                  )}
-                  {b.status === "STORNIERT" && (
-                    <span className="inline-block px-2 py-1 rounded bg-red-900 text-red-100 text-xs">Storniert</span>
-                  )}
-                  {b.status === "NO_SHOW" && (
-                    <span className="inline-block px-2 py-1 rounded bg-orange-900 text-orange-100 text-xs">No Show</span>
-                  )}
-                </td>
-                <td className="px-4 py-2">
-                  <button
-                    className="flex items-center px-3 py-1 rounded text-[#C5A059] hover:bg-neutral-800 hover:text-[#d6b064]"
-                    aria-label="Verwalten"
-                    onClick={() => { setSelectedBooking(b); setIsDialogOpen(true); setIsCancelConfirmOpen(false); }}
-                  >
-                    <Pencil className="w-4 h-4 mr-2" /> Verwalten
-                  </button>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+      <div className="mx-0">
+        <table className="min-w-full border border-[#C5A059] bg-black">
+          <thead className="bg-neutral-900">
+            <tr>
+              <th className="px-4 py-2 text-left text-[#C5A059]">Datum</th>
+              <th className="px-4 py-2 text-left text-[#C5A059]">Zeit</th>
+              <th className="px-4 py-2 text-left text-[#C5A059]">Kunde</th>
+              <th className="px-4 py-2 text-left text-[#C5A059] hidden md:table-cell">Service</th>
+              <th className="px-4 py-2 text-left text-[#C5A059] hidden md:table-cell">Status</th>
+              <th className="px-4 py-2 text-left text-[#C5A059] hidden md:table-cell">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {sortedBookings.map((b) => {
+              const d = new Date(b.date);
+              const datum = DATE_FORMATTER.format(d);
+              const zeit = TIME_FORMATTER.format(d);
+              return (
+                <tr
+                  key={b.id}
+                  className="border-t border-neutral-800 md:cursor-default cursor-pointer"
+                  onClick={() => { if (typeof window !== "undefined" && window.innerWidth < 768) { setSelectedBooking(b); setIsDialogOpen(true); setIsCancelConfirmOpen(false); } }}
+                >
+                  <td className="px-4 py-2">{datum}</td>
+                  <td className="px-4 py-2">{zeit}</td>
+                  <td className="px-4 py-2">
+                    <div className="hidden md:block">{b.clientName} – {b.clientPhone}</div>
+                    <div className="block md:hidden">
+                      <div className="leading-tight break-words">{b.clientName}</div>
+                      <div className="leading-tight break-words text-neutral-300">{b.clientPhone}</div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 hidden md:table-cell">{b.service?.name}</td>
+                  <td className="px-4 py-2 hidden md:table-cell">
+                    {b.status === "BESTAETIGT" && (
+                      <span className="inline-block px-2 py-1 rounded bg-green-900 text-green-100 text-xs">Bestätigt</span>
+                    )}
+                    {b.status === "ABGESCHLOSSEN" && (
+                      <span className="inline-block px-2 py-1 rounded bg-neutral-700 text-neutral-300 text-xs">Abgeschlossen</span>
+                    )}
+                    {b.status === "STORNIERT" && (
+                      <span className="inline-block px-2 py-1 rounded bg-red-900 text-red-100 text-xs">Storniert</span>
+                    )}
+                    {b.status === "NO_SHOW" && (
+                      <span className="inline-block px-2 py-1 rounded bg-orange-900 text-orange-100 text-xs">No Show</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-2 hidden md:table-cell">
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="flex items-center px-3 py-1 rounded text-[#C5A059] hover:bg-neutral-800 hover:text-[#d6b064]"
+                        aria-label="Verwalten"
+                        onClick={() => { setSelectedBooking(b); setIsDialogOpen(true); setIsCancelConfirmOpen(false); }}
+                      >
+                        <Pencil className="w-4 h-4 mr-2" /> Verwalten
+                      </button>
+                      <button
+                        className="px-3 py-1 rounded border border-neutral-700 text-white hover:bg-neutral-800 disabled:opacity-50"
+                        disabled={b.status !== "BESTAETIGT"}
+                        onClick={async () => {
+                          const r = await fetch(`/api/bookings/${b.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "ABGESCHLOSSEN" }) });
+                          if (r.ok) {
+                            setBookings((prev) => prev.map((p) => p.id === b.id ? { ...p, status: "ABGESCHLOSSEN" } : p));
+                            setToastMessage("Als abgeschlossen markiert");
+                            setTimeout(() => setToastMessage(null), 3000);
+                          }
+                        }}
+                      >
+                        Abschließen
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
 
             {isDialogOpen && selectedBooking && (
               <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
@@ -279,56 +361,73 @@ export default function AdminClient({ initial, initialServices }: Readonly<{ ini
                       </div>
                     </div>
                   )}
-                  <div className="mt-6 flex items-center justify-between gap-2">
-                    <div>
-                      {!isCancelConfirmOpen && selectedBooking.status === "BESTAETIGT" && (
-                        <button className="px-4 py-2 rounded bg-red-600 text-white" onClick={() => setIsCancelConfirmOpen(true)}>Termin stornieren</button>
-                      )}
-                    </div>
-                    <div className="flex gap-2">
-                      {isCancelConfirmOpen ? (
-                        <>
-                          <button className="px-4 py-2 rounded border border-neutral-700 text-white" onClick={() => setIsCancelConfirmOpen(false)}>Zurück</button>
-                          <button
-                            className="px-4 py-2 rounded bg-red-600 text-white"
-                            onClick={async () => {
-                              if (!selectedBooking) return;
-                              const r = await fetch(`/api/bookings/${selectedBooking.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "STORNIERT" }) });
-                              if (r.ok) {
-                                setIsDialogOpen(false);
-                                setIsCancelConfirmOpen(false);
-                                setBookings((prev) => prev.map((p) => p.id === selectedBooking.id ? { ...p, status: "STORNIERT" } : p));
-                                setSelectedBooking(null);
-                                setToastMessage("Termin storniert");
-                                setTimeout(() => setToastMessage(null), 3000);
-                              }
-                            }}
-                          >
-                            Endgültig stornieren
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            className="px-4 py-2 rounded border border-orange-600 text-orange-500 hover:bg-orange-900"
-                            onClick={async () => {
-                              if (!selectedBooking) return;
-                              const r = await fetch(`/api/bookings/${selectedBooking.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "NO_SHOW" }) });
-                              if (r.ok) {
-                                setIsDialogOpen(false);
-                                setBookings((prev) => prev.map((p) => p.id === selectedBooking.id ? { ...p, status: "NO_SHOW" } : p));
-                                setSelectedBooking(null);
-                                setToastMessage("No Show markiert");
-                                setTimeout(() => setToastMessage(null), 3000);
-                              }
-                            }}
-                          >
-                            Nicht erschienen (No Show)
-                          </button>
-                          <button className="px-4 py-2 rounded border border-neutral-700 text-white" onClick={() => { setIsDialogOpen(false); setSelectedBooking(null); }}>Zurück</button>
-                        </>
-                      )}
-                    </div>
+                  <div className="mt-6">
+                    {isCancelConfirmOpen ? (
+                      <div className="grid grid-cols-2 gap-2">
+                        <button className="aspect-square flex items-center justify-center text-center md:text-base text-sm rounded border border-neutral-700 bg-white text-black" onClick={() => setIsCancelConfirmOpen(false)}>Zurück</button>
+                        <button
+                          className="aspect-square flex items-center justify-center text-center md:text-base text-sm rounded bg-red-600 text-white"
+                          onClick={async () => {
+                            if (!selectedBooking) return;
+                            const r = await fetch(`/api/bookings/${selectedBooking.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "STORNIERT" }) });
+                            if (r.ok) {
+                              setIsDialogOpen(false);
+                              setIsCancelConfirmOpen(false);
+                              setBookings((prev) => prev.map((p) => p.id === selectedBooking.id ? { ...p, status: "STORNIERT" } : p));
+                              setSelectedBooking(null);
+                              setToastMessage("Termin storniert");
+                              setTimeout(() => setToastMessage(null), 3000);
+                            }
+                          }}
+                        >
+                          Endgültig stornieren
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-4 gap-2">
+                        <button
+                          className="aspect-square flex items-center justify-center text-center md:text-base text-sm rounded bg-red-600 text-white disabled:opacity-50"
+                          disabled={!selectedBooking || selectedBooking.status !== "BESTAETIGT"}
+                          onClick={() => setIsCancelConfirmOpen(true)}
+                        >
+                          Termin stornieren
+                        </button>
+                        <button
+                          className="aspect-square flex items-center justify-center text-center md:text-base text-sm rounded bg-neutral-700 text-white hover:bg-neutral-600"
+                          onClick={async () => {
+                            if (!selectedBooking) return;
+                            const r = await fetch(`/api/bookings/${selectedBooking.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "NO_SHOW" }) });
+                            if (r.ok) {
+                              setIsDialogOpen(false);
+                              setBookings((prev) => prev.map((p) => p.id === selectedBooking.id ? { ...p, status: "NO_SHOW" } : p));
+                              setSelectedBooking(null);
+                              setToastMessage("No Show markiert");
+                              setTimeout(() => setToastMessage(null), 3000);
+                            }
+                          }}
+                        >
+                          NO SHOW
+                        </button>
+                        <button
+                          className="aspect-square flex items-center justify-center text-center md:text-base text-sm rounded bg-black text-white border border-neutral-700 hover:bg-neutral-900 disabled:opacity-50"
+                          disabled={!selectedBooking || selectedBooking.status !== "BESTAETIGT"}
+                          onClick={async () => {
+                            if (!selectedBooking) return;
+                            const r = await fetch(`/api/bookings/${selectedBooking.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "ABGESCHLOSSEN" }) });
+                            if (r.ok) {
+                              setIsDialogOpen(false);
+                              setBookings((prev) => prev.map((p) => p.id === selectedBooking.id ? { ...p, status: "ABGESCHLOSSEN" } : p));
+                              setSelectedBooking(null);
+                              setToastMessage("Als abgeschlossen markiert");
+                              setTimeout(() => setToastMessage(null), 3000);
+                            }
+                          }}
+                        >
+                          Abschließen
+                        </button>
+                        <button className="aspect-square flex items-center justify-center text-center md:text-base text-sm rounded border border-neutral-700 bg-white text-black" onClick={() => { setIsDialogOpen(false); setSelectedBooking(null); }}>Zurück</button>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
