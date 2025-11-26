@@ -1,0 +1,39 @@
+services:
+  app:
+    build: .
+    user: root
+    command: sh -c "npm install && npx prisma generate && npm run dev"
+    env_file:
+      - .env
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/barbershop?schema=public"
+      ADMIN_PASSWORD: "barber123"
+    depends_on:
+      - db
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.barber-termin.rule=Host(`termin.barbershop-brienz.ch`)"
+    #   - "traefik.http.routers.barber-admin.rule=Host(`admin.barbershop-brienz.ch`)"
+    #   - "traefik.http.services.barber.loadbalancer.server.port=3000"
+  db:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=barbershop
+    ports:
+      - "5433:5432"
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data
+  cron:
+    image: alpine:3.20
+    depends_on:
+      - app
+    command: sh -c "apk add --no-cache curl && echo '*/10 * * * * curl -fsS http://app:3000/api/cron/reminders || true' > /etc/crontabs/root && crond -f -l 8"

@@ -1,0 +1,52 @@
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x", "linux-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Service {
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
+  priceCHF  Int
+  duration  Int     @default(30)
+  bookings  Booking[]
+}
+
+model Booking {
+  id          Int      @id @default(autoincrement())
+  date        DateTime
+  clientName  String
+  clientEmail String
+  clientPhone String
+  serviceId   Int
+  service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  status      BookingStatus @default(BESTAETIGT)
+  notes       String?
+  reminderSent Boolean @default(false)
+  cancellationToken String? @unique @default(uuid())
+}
+
+enum BookingStatus {
+  BESTAETIGT
+  ABGESCHLOSSEN
+  STORNIERT
+  NO_SHOW
+  BLOCKIERT
+}
+
+model WorkingHours {
+  id         Int    @id @default(autoincrement())
+  dayOfWeek  Int    @unique
+  startTime  String
+  endTime    String
+  isOpen     Boolean @default(true)
+}
+
+model StoreConfig {
+  id             Int      @id @default(autoincrement())
+  adminPassword  String?
+}
