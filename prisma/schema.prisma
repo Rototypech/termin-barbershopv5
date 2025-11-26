@@ -28,6 +28,8 @@ model Booking {
   notes       String?
   reminderSent Boolean @default(false)
   cancellationToken String? @unique @default(uuid())
+  consent Boolean @default(false)
+  marketingConsent Boolean @default(false)
 }
 
 enum BookingStatus {
@@ -44,9 +46,37 @@ model WorkingHours {
   startTime  String
   endTime    String
   isOpen     Boolean @default(true)
+  breakStart String?
+  breakEnd   String?
 }
 
 model StoreConfig {
   id             Int      @id @default(autoincrement())
   adminPassword  String?
+  resetToken     String?  @unique
+  resetTokenExpiry DateTime?
+}
+
+model EmailLog {
+  id        Int      @id @default(autoincrement())
+  sentAt    DateTime @default(now())
+  recipient String
+  subject   String
+  status    String
+}
+
+model RecurringBreak {
+  id        Int     @id @default(autoincrement())
+  name      String
+  startTime String
+  endTime   String
+  enabled   Boolean @default(true)
+}
+
+model BlockedSlot {
+  id        Int      @id @default(autoincrement())
+  date      DateTime
+  startTime String
+  endTime   String
+  reason    String?
 }

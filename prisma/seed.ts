@@ -21,6 +21,24 @@ async function main() {
   }
   console.log("Preisliste aktualisiert: 7 Leistungen");
 
+  const whDefaults = [
+    { dayOfWeek: 0, isOpen: false, startTime: "00:00", endTime: "00:00" },
+    { dayOfWeek: 1, isOpen: true, startTime: "09:00", endTime: "17:00" },
+    { dayOfWeek: 2, isOpen: true, startTime: "09:00", endTime: "17:00" },
+    { dayOfWeek: 3, isOpen: true, startTime: "09:00", endTime: "17:00" },
+    { dayOfWeek: 4, isOpen: true, startTime: "09:00", endTime: "17:00" },
+    { dayOfWeek: 5, isOpen: true, startTime: "09:00", endTime: "17:00" },
+    { dayOfWeek: 6, isOpen: true, startTime: "09:00", endTime: "17:00" },
+  ];
+  for (const d of whDefaults) {
+    await prisma.workingHours.upsert({
+      where: { dayOfWeek: d.dayOfWeek },
+      update: { isOpen: d.isOpen, startTime: d.startTime, endTime: d.endTime, breakStart: null, breakEnd: null },
+      create: { dayOfWeek: d.dayOfWeek, isOpen: d.isOpen, startTime: d.startTime, endTime: d.endTime, breakStart: null, breakEnd: null },
+    });
+  }
+  console.log("Öffnungszeiten aktualisiert: 7 Tage");
+
   const today = new Date();
   const names = [
     "Hans Müller",
@@ -73,13 +91,11 @@ async function main() {
   console.log(`Es wurden ${bookingsCount} Beispielbuchungen hinzugefügt`);
 }
 
-await (async () => {
-  try {
-    await main();
-  } catch (e) {
+main()
+  .catch((e) => {
     console.error(e);
     process.exit(1);
-  } finally {
+  })
+  .finally(async () => {
     await prisma.$disconnect();
-  }
-})();
+  });
